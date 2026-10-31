@@ -1,5 +1,5 @@
 export type FormKind = "quiz" | "survey";
-export type QuestionKind = "choice" | "text";
+export type QuestionKind = "choice" | "checkbox" | "text";
 export type View = "dashboard" | "editor" | "take" | "results";
 
 export type Question = {
@@ -8,6 +8,7 @@ export type Question = {
   kind: QuestionKind;
   options: string[];
   correctOptionIndex: number | null;
+  correctOptionIndexes: number[];
   required: boolean;
 };
 
@@ -31,4 +32,5 @@ export type Submission = {
   answers: ResponseAnswer[];
   score: number;
   scoredQuestions: number;
+  checkboxScores: Array<{ question: string; percentage: number }>;
 };

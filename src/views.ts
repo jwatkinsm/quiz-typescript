@@ -52,7 +52,7 @@ export function renderDashboard(
       <section class="empty-state">
         <span class="empty-state__icon" aria-hidden="true">✳</span>
         <h2>Your next great question starts here.</h2>
-        <p>Create a quiz with scored multiple-choice answers or a survey to collect responses.</p>
+        <p>Create a quiz with scored multiple-choice and checkbox answers, or a survey to collect responses.</p>
         <button class="primary-button" type="button" data-action="new-quiz">Create your first form <span aria-hidden="true">→</span></button>
       </section>
     `;
@@ -87,12 +87,12 @@ function renderQuestionEditor(
   draft: QuizForm,
 ): string {
   const choiceOptions =
-    question.kind === "choice"
+    question.kind !== "text"
       ? `
         <div class="editor-options">
-          <div class="editor-options__heading">
+          <div class="editor-options__heading ${question.kind === "checkbox" ? "editor-options__heading--multiple" : ""}">
             <span>Answer options</span>
-            ${draft.kind === "quiz" ? "<span>Correct answer</span>" : ""}
+            ${draft.kind === "quiz" ? `<span>${question.kind === "checkbox" ? "Correct answers" : "Correct answer"}</span>` : ""}
           </div>
           ${question.options
             .map(
@@ -100,7 +100,7 @@ function renderQuestionEditor(
                 <div class="option-editor">
                   <span class="option-editor__letter">${String.fromCharCode(65 + optionIndex)}</span>
                   <input type="text" maxlength="160" value="${escapeHtml(option)}" aria-label="Option ${optionIndex + 1}" data-question="${escapeHtml(question.id)}" data-option="${optionIndex}" />
-                  ${draft.kind === "quiz" ? `<input class="correct-radio" type="radio" name="correct-${escapeHtml(question.id)}" value="${optionIndex}" aria-label="Mark option ${optionIndex + 1} as correct" ${question.correctOptionIndex === optionIndex ? "checked" : ""} data-question="${escapeHtml(question.id)}" data-correct />` : ""}
+                  ${draft.kind === "quiz" ? `<input class="correct-answer" type="${question.kind === "checkbox" ? "checkbox" : "radio"}" name="correct-${escapeHtml(question.id)}" value="${optionIndex}" aria-label="Mark option ${optionIndex + 1} as correct" ${question.kind === "checkbox" ? (question.correctOptionIndexes.includes(optionIndex) ? "checked" : "") : (question.correctOptionIndex === optionIndex ? "checked" : "")} data-question="${escapeHtml(question.id)}" data-correct />` : ""}
                   ${question.options.length > 2 ? `<button class="icon-button option-remove" type="button" data-action="remove-option" data-question="${escapeHtml(question.id)}" data-option="${optionIndex}" aria-label="Remove option ${optionIndex + 1}">×</button>` : ""}
                 </div>
               `,
@@ -124,6 +124,7 @@ function renderQuestionEditor(
         <label class="field-label">Answer type
           <select data-question="${escapeHtml(question.id)}" data-question-field="kind">
             <option value="choice" ${question.kind === "choice" ? "selected" : ""}>Multiple choice</option>
+            <option value="checkbox" ${question.kind === "checkbox" ? "selected" : ""}>Checkboxes</option>
             <option value="text" ${question.kind === "text" ? "selected" : ""}>Text input</option>
           </select>
         </label>
@@ -165,7 +166,7 @@ export function renderEditor(
         <div class="question-list">${draft.questions.map((question, index) => renderQuestionEditor(question, index, draft)).join("")}</div>
         <button class="add-question-button" type="button" data-action="add-question" ${draft.questions.length >= MAX_QUESTIONS ? "disabled" : ""}>＋ Add a question</button>
         <div class="editor-footer">
-          <p>${draft.kind === "quiz" ? "Quiz scores count multiple-choice questions only." : "Surveys collect responses without scoring."}<br />Your forms are saved in this browser.</p>
+          <p>${draft.kind === "quiz" ? "Multiple-choice questions score fully; checkbox questions award partial credit." : "Surveys collect responses without scoring."}<br />Your forms are saved in this browser.</p>
           <button class="primary-button" type="button" data-action="save">Save form <span aria-hidden="true">→</span></button>
         </div>
       </section>
@@ -178,12 +179,12 @@ export function renderTake(form: QuizForm, notice: string, storageError: string)
   const questionMarkup = form.questions
     .map((question, index) => {
       const control =
-        question.kind === "choice"
+        question.kind !== "text"
           ? `<div class="take-options">${question.options
               .map(
                 (option, optionIndex) => `
                   <label class="take-option">
-                    <input type="radio" name="${escapeHtml(question.id)}" value="${optionIndex}" ${question.required ? "required" : ""} />
+                    <input type="${question.kind === "checkbox" ? "checkbox" : "radio"}" name="${escapeHtml(question.id)}" value="${optionIndex}" ${question.kind === "choice" && question.required ? "required" : ""} />
                     <span class="take-option__letter">${String.fromCharCode(65 + optionIndex)}</span>
                     <span>${escapeHtml(option)}</span>
                   </label>
@@ -228,8 +229,19 @@ export function renderTake(form: QuizForm, notice: string, storageError: string)
 }
 
 export function renderResults(submission: Submission): string {
-  const { form, score, scoredQuestions } = submission;
+  const { form, score, scoredQuestions, checkboxScores } = submission;
   const hasScore = form.kind === "quiz" && scoredQuestions > 0;
+  const formattedScore = Number(score.toFixed(2)).toString();
+  const overallPercentage =
+    scoredQuestions > 0 ? Math.round((score / scoredQuestions) * 100) : 0;
+  const checkboxFeedback = checkboxScores.length
+    ? `<div class="checkbox-score-list"><h2>Checkbox question scores</h2><ul>${checkboxScores
+        .map(
+          ({ question, percentage }) =>
+            `<li><span>${escapeHtml(question)}</span><strong>${Number(percentage.toFixed(1))}%</strong></li>`,
+        )
+        .join("")}</ul></div>`
+    : "";
 
   return `
     <main class="page-shell">
@@ -237,9 +249,10 @@ export function renderResults(submission: Submission): string {
       <section class="results-card results-card--studio" aria-labelledby="results-title">
         <div class="results-card__confetti" aria-hidden="true"><span>✳</span><span>✦</span><span>✳</span><span>✦</span></div>
         <p class="eyebrow"><span class="eyebrow__dot"></span> RESPONSE COMPLETE</p>
-        ${hasScore ? `<div class="score-circle"><span class="score-circle__value">${score}</span><span class="score-circle__divider">/</span><span class="score-circle__total">${scoredQuestions}</span></div>` : '<div class="results-check" aria-hidden="true">✓</div>'}
+        ${hasScore ? `<div class="score-circle"><span class="score-circle__value">${formattedScore}</span><span class="score-circle__divider">/</span><span class="score-circle__total">${scoredQuestions}</span></div>` : '<div class="results-check" aria-hidden="true">✓</div>'}
         <h1 id="results-title">${hasScore ? "Your quiz is complete!" : "Thank you for sharing."}</h1>
-        <p class="results-card__message">${hasScore ? `You got ${score} out of ${scoredQuestions} scored question${scoredQuestions === 1 ? "" : "s"} right.` : "Your answers are ready to download."}</p>
+        <p class="results-card__message">${hasScore ? `You earned ${formattedScore} of ${scoredQuestions} points (${overallPercentage}% overall).` : "Your answers are ready to download."}</p>
+        ${checkboxFeedback}
         <div class="results-card__rule"></div>
         <p class="results-card__fact"><span aria-hidden="true">✦</span> Answers are downloaded to a plain text file on your device.</p>
         <div class="results-actions">

@@ -41,7 +41,7 @@ function bindResponseForm(form: QuizForm): void {
   app.querySelector<HTMLFormElement>("#response-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formElement = event.currentTarget;
-    if (!(formElement instanceof HTMLFormElement) || !formElement.reportValidity()) return;
+    if (!(formElement instanceof HTMLFormElement)) return;
 
     const submitButton = formElement.querySelector<HTMLButtonElement>('[type="submit"]');
     const status = app.querySelector<HTMLParagraphElement>("#submission-status");
@@ -49,9 +49,26 @@ function bindResponseForm(form: QuizForm): void {
       throw new Error("The submission controls are unavailable.");
     }
 
+    status.textContent = "";
+    const unansweredRequiredCheckbox = form.questions.find(
+      (question) =>
+        question.kind === "checkbox" &&
+        question.required &&
+        new FormData(formElement).getAll(question.id).length === 0,
+    );
+    if (unansweredRequiredCheckbox) {
+      status.textContent = `Select at least one option for: ${unansweredRequiredCheckbox.prompt}`;
+      formElement
+        .querySelector<HTMLInputElement>(
+          `input[type="checkbox"][name="${CSS.escape(unansweredRequiredCheckbox.id)}"]`,
+        )
+        ?.focus();
+      return;
+    }
+    if (!formElement.reportValidity()) return;
+
     submitButton.disabled = true;
     submitButton.textContent = "Submitting…";
-    status.textContent = "";
 
     // Keep the respondent on this screen if processing fails, and restore the submit control.
     try {
@@ -120,24 +137,37 @@ function saveDraft(): void {
   }
 
   for (const [index, question] of draft.questions.entries()) {
-    if (question.kind !== "choice") continue;
+    if (question.kind === "text") continue;
     question.options = question.options.map((option) => option.trim());
     if (question.options.length < 2 || question.options.some((option) => !option)) {
       notice = `Question ${index + 1} needs at least two non-empty answer options.`;
       render();
       return;
     }
-    if (
-      draft.kind === "quiz" &&
-      (question.correctOptionIndex === null ||
-        question.correctOptionIndex < 0 ||
-        question.correctOptionIndex >= question.options.length)
-    ) {
-      notice = `Choose the correct answer for question ${index + 1}.`;
-      render();
-      return;
+    if (question.kind === "choice") {
+      if (
+        draft.kind === "quiz" &&
+        (question.correctOptionIndex === null ||
+          question.correctOptionIndex < 0 ||
+          question.correctOptionIndex >= question.options.length)
+      ) {
+        notice = `Choose the correct answer for question ${index + 1}.`;
+        render();
+        return;
+      }
+      question.correctOptionIndexes = [];
+      if (draft.kind === "survey") question.correctOptionIndex = null;
+    } else {
+      question.correctOptionIndexes = question.correctOptionIndexes.filter(
+        (optionIndex) => optionIndex >= 0 && optionIndex < question.options.length,
+      );
+      if (draft.kind === "quiz" && question.correctOptionIndexes.length === 0) {
+        notice = `Choose at least one correct answer for question ${index + 1}.`;
+        render();
+        return;
+      }
+      question.correctOptionIndex = null;
     }
-    if (draft.kind === "survey") question.correctOptionIndex = null;
   }
 
   const existingIndex = forms.findIndex((form) => form.id === draft?.id);
@@ -190,14 +220,27 @@ app.addEventListener("change", (event) => {
   const question = draft.questions.find((item) => item.id === target.dataset.question);
   if (!question) return;
   if (target instanceof HTMLSelectElement && target.dataset.questionField === "kind") {
-    question.kind = target.value === "text" ? "text" : "choice";
-    question.options = question.kind === "choice" ? ["Option 1", "Option 2"] : [];
+    question.kind =
+      target.value === "text" || target.value === "checkbox" ? target.value : "choice";
+    question.options = question.kind === "text" ? [] : ["Option 1", "Option 2"];
     question.correctOptionIndex = null;
+    question.correctOptionIndexes = [];
     render();
   } else if (target instanceof HTMLInputElement && target.dataset.questionField === "required") {
     question.required = target.checked;
   } else if (target instanceof HTMLInputElement && target.hasAttribute("data-correct")) {
-    question.correctOptionIndex = Number(target.value);
+    const optionIndex = Number(target.value);
+    if (question.kind === "checkbox") {
+      if (target.checked && !question.correctOptionIndexes.includes(optionIndex)) {
+        question.correctOptionIndexes.push(optionIndex);
+      } else if (!target.checked) {
+        question.correctOptionIndexes = question.correctOptionIndexes.filter(
+          (index) => index !== optionIndex,
+        );
+      }
+    } else {
+      question.correctOptionIndex = optionIndex;
+    }
   }
 });
 
@@ -246,6 +289,9 @@ app.addEventListener("click", (event) => {
       else if (question.correctOptionIndex !== null && question.correctOptionIndex > optionIndex) {
         question.correctOptionIndex -= 1;
       }
+      question.correctOptionIndexes = question.correctOptionIndexes
+        .filter((index) => index !== optionIndex)
+        .map((index) => (index > optionIndex ? index - 1 : index));
       render();
     }
   } else if (action === "save") {

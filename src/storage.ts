@@ -15,11 +15,18 @@ function parseQuestion(value: unknown): Question {
   if (
     typeof question.id !== "string" ||
     typeof question.prompt !== "string" ||
-    (question.kind !== "choice" && question.kind !== "text") ||
+    (question.kind !== "choice" &&
+      question.kind !== "checkbox" &&
+      question.kind !== "text") ||
     !Array.isArray(question.options) ||
     !question.options.every((option) => typeof option === "string") ||
     (question.correctOptionIndex !== null &&
       typeof question.correctOptionIndex !== "number") ||
+    (question.correctOptionIndexes !== undefined &&
+      (!Array.isArray(question.correctOptionIndexes) ||
+        !question.correctOptionIndexes.every(
+          (index) => typeof index === "number" && Number.isInteger(index),
+        ))) ||
     typeof question.required !== "boolean"
   ) {
     throw new Error("A saved question is missing required information.");
@@ -31,6 +38,7 @@ function parseQuestion(value: unknown): Question {
     kind: question.kind,
     options: question.options,
     correctOptionIndex: question.correctOptionIndex,
+    correctOptionIndexes: question.correctOptionIndexes ?? [],
     required: question.required,
   };
 }
