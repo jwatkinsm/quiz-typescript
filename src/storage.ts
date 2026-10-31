@@ -2,10 +2,12 @@ import type { Question, QuizForm } from "./types.js";
 
 const STORAGE_KEY = "little-quiz-forms-v1";
 
+// --- Runtime shape guards ---
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+// --- Saved data validation and normalization ---
 function parseQuestion(value: unknown): Question {
   if (!isRecord(value)) {
     throw new Error("A saved question is not valid.");
@@ -17,6 +19,7 @@ function parseQuestion(value: unknown): Question {
     typeof question.prompt !== "string" ||
     (question.kind !== "choice" &&
       question.kind !== "checkbox" &&
+      question.kind !== "matching" &&
       question.kind !== "text") ||
     !Array.isArray(question.options) ||
     !question.options.every((option) => typeof option === "string") ||
@@ -27,11 +30,20 @@ function parseQuestion(value: unknown): Question {
         !question.correctOptionIndexes.every(
           (index) => typeof index === "number" && Number.isInteger(index),
         ))) ||
+    (question.matchingPairs !== undefined &&
+      (!Array.isArray(question.matchingPairs) ||
+        !question.matchingPairs.every(
+          (pair) =>
+            isRecord(pair) &&
+            typeof pair.prompt === "string" &&
+            typeof pair.answer === "string",
+        ))) ||
     typeof question.required !== "boolean"
   ) {
     throw new Error("A saved question is missing required information.");
   }
 
+  // Default fields introduced by newer question types so older saved forms still load.
   return {
     id: question.id,
     prompt: question.prompt,
@@ -39,6 +51,7 @@ function parseQuestion(value: unknown): Question {
     options: question.options,
     correctOptionIndex: question.correctOptionIndex,
     correctOptionIndexes: question.correctOptionIndexes ?? [],
+    matchingPairs: question.matchingPairs ?? [],
     required: question.required,
   };
 }
@@ -72,6 +85,7 @@ function parseForm(value: unknown): QuizForm {
   };
 }
 
+// --- Browser storage access ---
 export function readForms(): QuizForm[] {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (!saved) return [];
@@ -81,6 +95,7 @@ export function readForms(): QuizForm[] {
     throw new Error("Saved form data has an unexpected format.");
   }
 
+  // Parse each entry before exposing saved data to the rest of the app.
   return parsed.map(parseForm);
 }
 
@@ -89,6 +104,7 @@ export function saveForms(forms: QuizForm[]): string | null {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(forms));
     return null;
   } catch (error) {
+    // Return the failure to the caller so the UI can report it instead of hiding it.
     return error instanceof Error ? error.message : "The browser storage is unavailable.";
   }
 }

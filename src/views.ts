@@ -1,6 +1,7 @@
 import type { Question, QuizForm, Submission } from "./types.js";
 import { escapeHtml, formatDate, MAX_QUESTIONS } from "./utils.js";
 
+// --- Shared page elements ---
 function renderHeader(): string {
   return `
     <header class="topbar">
@@ -23,6 +24,7 @@ function renderNotice(notice: string, storageError: string): string {
   return "";
 }
 
+// --- Dashboard ---
 export function renderDashboard(
   forms: QuizForm[],
   notice: string,
@@ -81,13 +83,38 @@ export function renderDashboard(
   `;
 }
 
+// --- Form builder ---
 function renderQuestionEditor(
   question: Question,
   index: number,
   draft: QuizForm,
 ): string {
+  const matchingOptions =
+    question.kind === "matching"
+      ? `
+        <div class="editor-options">
+          <div class="editor-options__heading editor-options__heading--matching">
+            <span>Prompt</span>
+            <span>Matching answer</span>
+            <span></span>
+          </div>
+          ${question.matchingPairs
+            .map(
+              (pair, pairIndex) => `
+                <div class="matching-editor">
+                  <input type="text" maxlength="160" value="${escapeHtml(pair.prompt)}" aria-label="Matching prompt ${pairIndex + 1}" data-question="${escapeHtml(question.id)}" data-match-index="${pairIndex}" data-match-field="prompt" />
+                  <input type="text" maxlength="160" value="${escapeHtml(pair.answer)}" aria-label="Matching answer ${pairIndex + 1}" data-question="${escapeHtml(question.id)}" data-match-index="${pairIndex}" data-match-field="answer" />
+                  <button class="icon-button option-remove" type="button" data-action="remove-match" data-question="${escapeHtml(question.id)}" data-match-index="${pairIndex}" aria-label="Remove matching pair ${pairIndex + 1}" ${question.matchingPairs.length <= 2 ? "disabled" : ""}>×</button>
+                </div>
+              `,
+            )
+            .join("")}
+          <button class="text-button" type="button" data-action="add-match" data-question="${escapeHtml(question.id)}" ${question.matchingPairs.length >= 8 ? "disabled" : ""}>＋ Add matching pair</button>
+        </div>
+      `
+      : "";
   const choiceOptions =
-    question.kind !== "text"
+    question.kind !== "text" && question.kind !== "matching"
       ? `
         <div class="editor-options">
           <div class="editor-options__heading ${question.kind === "checkbox" ? "editor-options__heading--multiple" : ""}">
@@ -109,7 +136,9 @@ function renderQuestionEditor(
           <button class="text-button" type="button" data-action="add-option" data-question="${escapeHtml(question.id)}" ${question.options.length >= 8 ? "disabled" : ""}>＋ Add option</button>
         </div>
       `
-      : `<p class="field-help">Respondents will answer with a free-text response. Text answers aren’t scored.</p>`;
+      : question.kind === "text"
+        ? `<p class="field-help">Respondents will answer with a free-text response. Text answers aren’t scored.</p>`
+        : "";
 
   return `
     <article class="question-editor">
@@ -125,12 +154,13 @@ function renderQuestionEditor(
           <select data-question="${escapeHtml(question.id)}" data-question-field="kind">
             <option value="choice" ${question.kind === "choice" ? "selected" : ""}>Multiple choice</option>
             <option value="checkbox" ${question.kind === "checkbox" ? "selected" : ""}>Checkboxes</option>
+            <option value="matching" ${question.kind === "matching" ? "selected" : ""}>Matching pairs</option>
             <option value="text" ${question.kind === "text" ? "selected" : ""}>Text input</option>
           </select>
         </label>
         <label class="checkbox-label"><input type="checkbox" data-question="${escapeHtml(question.id)}" data-question-field="required" ${question.required ? "checked" : ""} /> Required</label>
       </div>
-      ${choiceOptions}
+      ${question.kind === "matching" ? matchingOptions : choiceOptions}
     </article>
   `;
 }
@@ -166,7 +196,7 @@ export function renderEditor(
         <div class="question-list">${draft.questions.map((question, index) => renderQuestionEditor(question, index, draft)).join("")}</div>
         <button class="add-question-button" type="button" data-action="add-question" ${draft.questions.length >= MAX_QUESTIONS ? "disabled" : ""}>＋ Add a question</button>
         <div class="editor-footer">
-          <p>${draft.kind === "quiz" ? "Multiple-choice questions score fully; checkbox questions award partial credit." : "Surveys collect responses without scoring."}<br />Your forms are saved in this browser.</p>
+          <p>${draft.kind === "quiz" ? "Matching questions award partial credit for each correct pair; checkbox questions also allow partial credit." : "Surveys collect responses without scoring."}<br />Your forms are saved in this browser.</p>
           <button class="primary-button" type="button" data-action="save">Save form <span aria-hidden="true">→</span></button>
         </div>
       </section>
@@ -175,11 +205,32 @@ export function renderEditor(
   `;
 }
 
+// --- Respondent form ---
 export function renderTake(form: QuizForm, notice: string, storageError: string): string {
   const questionMarkup = form.questions
     .map((question, index) => {
+      // Each matching prompt gets a dropdown backed by the same answer pool.
       const control =
-        question.kind !== "text"
+        question.kind === "matching"
+          ? `<div class="take-matching">${question.matchingPairs
+              .map(
+                (pair, pairIndex) => `
+                  <label class="take-matching__row">
+                    <span>${escapeHtml(pair.prompt)}</span>
+                    <select name="${escapeHtml(question.id)}-match-${pairIndex}" aria-label="Match for ${escapeHtml(pair.prompt)}" ${question.required ? "required" : ""}>
+                      <option value="">Choose a match…</option>
+                      ${question.matchingPairs
+                        .map(
+                          (option, optionIndex) =>
+                            `<option value="${optionIndex}">${escapeHtml(option.answer)}</option>`,
+                        )
+                        .join("")}
+                    </select>
+                  </label>
+                `,
+              )
+              .join("")}</div>`
+          : question.kind !== "text"
           ? `<div class="take-options">${question.options
               .map(
                 (option, optionIndex) => `
@@ -228,17 +279,30 @@ export function renderTake(form: QuizForm, notice: string, storageError: string)
   `;
 }
 
+// --- Submission results ---
 export function renderResults(submission: Submission): string {
-  const { form, score, scoredQuestions, checkboxScores } = submission;
+  const { form, score, scoredQuestions, checkboxScores, matchingScores } = submission;
   const hasScore = form.kind === "quiz" && scoredQuestions > 0;
   const formattedScore = Number(score.toFixed(2)).toString();
   const overallPercentage =
     scoredQuestions > 0 ? Math.round((score / scoredQuestions) * 100) : 0;
-  const checkboxFeedback = checkboxScores.length
-    ? `<div class="checkbox-score-list"><h2>Checkbox question scores</h2><ul>${checkboxScores
+  const partialScores = [
+    ...checkboxScores.map(({ question, percentage }) => ({
+      question,
+      percentage,
+      kind: "Checkbox",
+    })),
+    ...matchingScores.map(({ question, percentage }) => ({
+      question,
+      percentage,
+      kind: "Matching",
+    })),
+  ];
+  const partialCreditFeedback = partialScores.length
+    ? `<div class="checkbox-score-list"><h2>Partial-credit question scores</h2><ul>${partialScores
         .map(
-          ({ question, percentage }) =>
-            `<li><span>${escapeHtml(question)}</span><strong>${Number(percentage.toFixed(1))}%</strong></li>`,
+          ({ question, percentage, kind }) =>
+            `<li><span>${kind} — ${escapeHtml(question)}</span><strong>${Number(percentage.toFixed(1))}%</strong></li>`,
         )
         .join("")}</ul></div>`
     : "";
@@ -252,7 +316,7 @@ export function renderResults(submission: Submission): string {
         ${hasScore ? `<div class="score-circle"><span class="score-circle__value">${formattedScore}</span><span class="score-circle__divider">/</span><span class="score-circle__total">${scoredQuestions}</span></div>` : '<div class="results-check" aria-hidden="true">✓</div>'}
         <h1 id="results-title">${hasScore ? "Your quiz is complete!" : "Thank you for sharing."}</h1>
         <p class="results-card__message">${hasScore ? `You earned ${formattedScore} of ${scoredQuestions} points (${overallPercentage}% overall).` : "Your answers are ready to download."}</p>
-        ${checkboxFeedback}
+        ${partialCreditFeedback}
         <div class="results-card__rule"></div>
         <p class="results-card__fact"><span aria-hidden="true">✦</span> Answers are downloaded to a plain text file on your device.</p>
         <div class="results-actions">

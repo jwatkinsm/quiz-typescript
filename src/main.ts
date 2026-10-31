@@ -5,7 +5,7 @@ import { readForms, saveForms } from "./storage.js";
 import { createId, downloadSubmission, makeQuestion, MAX_QUESTIONS } from "./utils.js";
 import { renderDashboard, renderEditor, renderResults, renderTake } from "./views.js";
 
-// App state
+// --- Application state ---
 const root = document.querySelector<HTMLDivElement>("#app");
 
 if (!root) {
@@ -22,7 +22,7 @@ let lastSubmission: Submission | null = null;
 let storageError = "";
 let notice = "";
 
-// View rendering and respondent submission
+// --- Screen rendering and response submission ---
 function render(): void {
   // Re-rendering replaces the form element, so the respondent submit handler is rebound each time.
   if (currentView === "editor" && draft) {
@@ -57,6 +57,7 @@ function bindResponseForm(form: QuizForm): void {
         new FormData(formElement).getAll(question.id).length === 0,
     );
     if (unansweredRequiredCheckbox) {
+      // Native "required" on each checkbox would require every option, not one selection per group.
       status.textContent = `Select at least one option for: ${unansweredRequiredCheckbox.prompt}`;
       formElement
         .querySelector<HTMLInputElement>(
@@ -84,7 +85,7 @@ function bindResponseForm(form: QuizForm): void {
   });
 }
 
-// Form creation and validation
+// --- Form creation and draft validation ---
 function startNewForm(kind: FormKind): void {
   draft = {
     id: createId(),
@@ -138,6 +139,31 @@ function saveDraft(): void {
 
   for (const [index, question] of draft.questions.entries()) {
     if (question.kind === "text") continue;
+    if (question.kind === "matching") {
+      // Unique labels keep dropdown choices unambiguous and each stored match scoreable.
+      question.matchingPairs = question.matchingPairs.map((pair) => ({
+        prompt: pair.prompt.trim(),
+        answer: pair.answer.trim(),
+      }));
+      if (
+        question.matchingPairs.length < 2 ||
+        question.matchingPairs.length > 8 ||
+        question.matchingPairs.some((pair) => !pair.prompt || !pair.answer) ||
+        new Set(question.matchingPairs.map((pair) => pair.prompt.toLowerCase())).size !==
+          question.matchingPairs.length ||
+        new Set(question.matchingPairs.map((pair) => pair.answer.toLowerCase())).size !==
+          question.matchingPairs.length
+      ) {
+        notice = `Question ${index + 1} needs two to eight complete pairs with unique prompts and matches.`;
+        render();
+        return;
+      }
+      question.correctOptionIndex = null;
+      question.correctOptionIndexes = [];
+      question.options = [];
+      continue;
+    }
+
     question.options = question.options.map((option) => option.trim());
     if (question.options.length < 2 || question.options.some((option) => !option)) {
       notice = `Question ${index + 1} needs at least two non-empty answer options.`;
@@ -189,8 +215,8 @@ function saveDraft(): void {
   render();
 }
 
-// Draft input listeners keep form fields synchronized with the in-memory draft.
-// Delegated listeners survive view re-renders because they are attached to the stable app root.
+// --- Draft field synchronization ---
+// Delegation keeps these listeners alive when rendering replaces the editor markup.
 app.addEventListener("input", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
@@ -204,6 +230,10 @@ app.addEventListener("input", (event) => {
     question.prompt = target.value;
   } else if (question && target.dataset.option !== undefined) {
     question.options[Number(target.dataset.option)] = target.value;
+  } else if (question && target.dataset.matchIndex !== undefined) {
+    const pair = question.matchingPairs[Number(target.dataset.matchIndex)];
+    if (pair && target.dataset.matchField === "prompt") pair.prompt = target.value;
+    else if (pair && target.dataset.matchField === "answer") pair.answer = target.value;
   } else if (!question && target.dataset.formField === "title") {
     draft.title = target.value;
   } else if (!question && target.dataset.formField === "description") {
@@ -211,7 +241,7 @@ app.addEventListener("input", (event) => {
   }
 });
 
-// Question setting controls
+// --- Question settings ---
 app.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
@@ -220,11 +250,24 @@ app.addEventListener("change", (event) => {
   const question = draft.questions.find((item) => item.id === target.dataset.question);
   if (!question) return;
   if (target instanceof HTMLSelectElement && target.dataset.questionField === "kind") {
+    // Reset type-specific data so switching types cannot retain stale answers or scoring keys.
     question.kind =
-      target.value === "text" || target.value === "checkbox" ? target.value : "choice";
+      target.value === "text" ||
+      target.value === "checkbox" ||
+      target.value === "matching"
+        ? target.value
+        : "choice";
     question.options = question.kind === "text" ? [] : ["Option 1", "Option 2"];
     question.correctOptionIndex = null;
     question.correctOptionIndexes = [];
+    question.matchingPairs =
+      question.kind === "matching"
+        ? [
+            { prompt: "Prompt 1", answer: "Match 1" },
+            { prompt: "Prompt 2", answer: "Match 2" },
+          ]
+        : [];
+    if (question.kind === "matching") question.options = [];
     render();
   } else if (target instanceof HTMLInputElement && target.dataset.questionField === "required") {
     question.required = target.checked;
@@ -244,11 +287,11 @@ app.addEventListener("change", (event) => {
   }
 });
 
-// App navigation and editor actions
+// --- Navigation and editor actions ---
 app.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof Element)) return;
-  // Views identify actions with data attributes; one handler routes all of their buttons.
+  // Data attributes let one delegated handler route buttons recreated by each render.
   const button = target.closest<HTMLButtonElement>("[data-action]");
   if (!button || button.disabled) return;
 
@@ -256,6 +299,7 @@ app.addEventListener("click", (event) => {
   const id = button.dataset.id;
   const questionId = button.dataset.question;
   const optionIndex = Number(button.dataset.option);
+  const matchIndex = Number(button.dataset.matchIndex);
 
   if (action === "home") {
     currentView = "dashboard";
@@ -294,6 +338,24 @@ app.addEventListener("click", (event) => {
         .map((index) => (index > optionIndex ? index - 1 : index));
       render();
     }
+  } else if (action === "add-match" && draft && questionId) {
+    const question = draft.questions.find((item) => item.id === questionId);
+    if (question?.kind === "matching" && question.matchingPairs.length < 8) {
+      const next = question.matchingPairs.length + 1;
+      question.matchingPairs.push({ prompt: `Prompt ${next}`, answer: `Match ${next}` });
+      render();
+    }
+  } else if (action === "remove-match" && draft && questionId) {
+    const question = draft.questions.find((item) => item.id === questionId);
+    if (
+      question?.kind === "matching" &&
+      question.matchingPairs.length > 2 &&
+      matchIndex >= 0 &&
+      matchIndex < question.matchingPairs.length
+    ) {
+      question.matchingPairs.splice(matchIndex, 1);
+      render();
+    }
   } else if (action === "save") {
     saveDraft();
   } else if (action === "edit" && id) {
@@ -328,8 +390,8 @@ app.addEventListener("click", (event) => {
   }
 });
 
-// Initialize from browser storage, then show the starting dashboard.
-// A storage read can fail (for example, if browser data is malformed); show that failure in the UI.
+// --- Application startup ---
+// Surface malformed or unavailable saved data in the UI instead of silently starting empty.
 try {
   forms = readForms();
 } catch (error) {

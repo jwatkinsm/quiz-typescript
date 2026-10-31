@@ -2,7 +2,7 @@
 
 ## Overview
 
-Little Quiz Studio is a browser application for creating, editing, and taking quizzes and surveys. Form authors can write questions, choose multiple-choice, checkbox, or free-text answers, mark correct quiz answers, and decide which questions are required. Quiz submissions are scored for marked multiple-choice and checkbox questions; Surveys and free-text answers are not scored. Respondents can download their completed answers as a plain-text file.
+Little Quiz Studio is a browser application for creating, editing, and taking quizzes and surveys. Form authors can write questions, choose multiple-choice, checkbox, matching-pair, or free-text answers, mark correct quiz answers, and decide which questions are required. Quiz submissions are scored for marked multiple-choice, checkbox, and matching-pair questions; checkbox questions award proportional partial credit, with incorrect selections reducing the score, while matching questions award credit for each correctly matched pair. Surveys and free-text answers are not scored. Respondents can download their completed answers as a plain-text file.
 
 I built this project to strengthen my software-engineering skills by applying TypeScript to a complete interactive application. It gave me practice designing typed data models, separating the UI into reusable modules, handling browser storage and form validation, and testing asynchronous application logic.
 
@@ -68,8 +68,8 @@ npm run preview
 
 ## Future Work
 
-- Add an option to export and import quiz and survey definitions, making it easier to move forms between browsers.
+
 - Add a backend so forms and submitted responses can be shared and managed across devices and users.
 - Add a response-management page to review and export multiple submissions for each form.
-- Add more question types, such as ratings and dropdowns.
-- Expand the automated tests to cover form storage, validation, and the browser UI.
+- Add more question types, such as ratings, fill in the blank.
+

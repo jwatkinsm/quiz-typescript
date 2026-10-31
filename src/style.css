@@ -1229,7 +1229,8 @@ a:focus-visible {
   font-weight: 600;
 }
 
-.option-editor input[type="text"] {
+.option-editor input[type="text"],
+.matching-editor input[type="text"] {
   width: 100%;
   min-width: 0;
   height: 37px;
@@ -1241,9 +1242,23 @@ a:focus-visible {
   font-size: 11px;
 }
 
-.option-editor input[type="text"]:focus {
+.option-editor input[type="text"]:focus,
+.matching-editor input[type="text"]:focus {
   border-color: #91aa81;
   outline: 3px solid rgb(145 170 129 / 18%);
+}
+
+.editor-options__heading--matching {
+  display: grid;
+  grid-template-columns: 1fr 1fr 25px;
+  gap: 9px;
+}
+
+.matching-editor {
+  display: grid;
+  grid-template-columns: 1fr 1fr 25px;
+  align-items: center;
+  gap: 9px;
 }
 
 .correct-answer {
@@ -1419,6 +1434,38 @@ a:focus-visible {
   margin-top: 14px;
 }
 
+.take-matching {
+  display: grid;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.take-matching__row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 14px;
+  color: #465047;
+  font-size: 11px;
+}
+
+.take-matching__row select {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #e3e7df;
+  border-radius: 6px;
+  background: #fff;
+  color: #364238;
+  font: inherit;
+  font-size: 11px;
+}
+
+.take-matching__row select:focus {
+  border-color: #91aa81;
+  outline: 3px solid rgb(145 170 129 / 18%);
+}
+
 .take-footer {
   margin-top: 15px;
 }
@@ -1544,6 +1591,11 @@ a:focus-visible {
 
   .take-question {
     padding: 17px 15px;
+  }
+
+  .take-matching__row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   .take-question legend {
